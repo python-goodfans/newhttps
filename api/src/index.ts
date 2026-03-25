@@ -15,6 +15,8 @@ import { deploymentRoutes } from './routes/deployment';
 import { renewalRoutes } from './routes/renewal';
 import { monitoringRoutes } from './routes/monitoring';
 import domainRoutes from './routes/domain';
+import { authRoutes } from './routes/auth';
+import { paymentRoutes } from './routes/payment';
 import { Database } from './services/database';
 import { RenewalScheduler } from './services/renewalScheduler';
 import { CertificateMonitor } from './services/certificateMonitor';
@@ -55,6 +57,8 @@ app.use('/api/v1/renewal', renewalRoutes);
 app.use('/api/v1/monitoring', monitoringRoutes);
 app.use('/api/v1/config', authMiddleware, configRoutes);
 app.use('/api/v1/domain', domainRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/payment', paymentRoutes);
 
 // 错误处理
 app.use(errorHandler);
@@ -72,6 +76,9 @@ async function startServer() {
   try {
     // 初始化数据库
     await Database.getInstance().init();
+
+    // 初始化默认管理员和套餐数据
+    await Database.getInstance().initDefaultPlans();
 
     // 初始化续期调度器
     await RenewalScheduler.getInstance().initialize();

@@ -120,11 +120,38 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/payment',
+    name: 'Payment',
+    component: () => import('@/views/Payment.vue'),
+    meta: {
+      title: '套餐升级',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/orders',
+    name: 'Orders',
+    component: () => import('@/views/Orders.vue'),
+    meta: {
+      title: '我的订单',
+      requiresAuth: true
+    }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: {
       title: '登录',
+      requiresAuth: false
+    }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/Register.vue'),
+    meta: {
+      title: '注册',
       requiresAuth: false
     }
   },
@@ -163,9 +190,12 @@ router.beforeEach((to, from, next) => {
 
   // 检查是否需要认证
   if (to.meta?.requiresAuth) {
-    // 这里应该检查用户登录状态
-    // 暂时跳过认证检查
-    next()
+    const token = localStorage.getItem('auth-token') || localStorage.getItem('token')
+    if (!token) {
+      next({ name: 'Login', query: { redirect: to.fullPath } })
+    } else {
+      next()
+    }
   } else {
     next()
   }
