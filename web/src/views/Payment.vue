@@ -126,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { CheckCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { getPlansApi, createPaymentApi, getOrderDetailApi, type PaymentPlan, type PaymentOrder } from '@/api/payment'
@@ -206,6 +206,10 @@ watch(paymentMethod, () => {
 
 onMounted(() => {
   fetchPlans()
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
 })
 </script>
 

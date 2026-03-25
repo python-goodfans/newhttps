@@ -26,18 +26,23 @@ export const useUserStore = defineStore('user', () => {
     localStorage.setItem('user-info', JSON.stringify(userData))
   }
 
-  const setToken = (tokenValue: string) => {
+  const setToken = (tokenValue: string, rememberMe?: boolean) => {
     token.value = tokenValue
     // 保存到本地存储（兼容 request.ts 中读取 'auth-token' 和 'token'）
     localStorage.setItem('auth-token', tokenValue)
     localStorage.setItem('token', tokenValue)
+    if (rememberMe) {
+      localStorage.setItem('remember-me', '1')
+    } else {
+      localStorage.removeItem('remember-me')
+    }
   }
 
-  const login = async (data: LoginData) => {
-    const res = await loginApi(data)
+  const login = async (data: LoginData & { rememberMe?: boolean }) => {
+    const res = await loginApi({ username: data.username, password: data.password })
     if (res.data) {
       setUser(res.data.user)
-      setToken(res.data.token)
+      setToken(res.data.token, data.rememberMe)
     }
   }
 
@@ -71,7 +76,8 @@ export const useUserStore = defineStore('user', () => {
       if (res.data) {
         setUser(res.data)
       }
-    } catch {
+    } catch (error) {
+      console.warn('Token validation failed, logging out:', error)
       logout()
     }
   }

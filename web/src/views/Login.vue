@@ -88,7 +88,7 @@ const loginForm = ref({
 const handleLogin = async () => {
   loading.value = true
   try {
-    await userStore.login(loginForm.value)
+    await userStore.login({ ...loginForm.value, rememberMe: rememberMe.value })
     message.success('登录成功')
     router.push('/dashboard')
   } catch (error: any) {

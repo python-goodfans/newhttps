@@ -1,10 +1,20 @@
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import rateLimit from 'express-rate-limit';
 import { Database } from '../services/database';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
+
+// 支付相关接口限流：每 15 分钟最多 30 次
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: '请求过于频繁，请稍后再试' }
+});
 
 /**
  * 生成订单号
@@ -20,11 +30,8 @@ function generateOrderNo(): string {
  * 生成模拟支付二维码 URL
  */
 function generateMockPayUrl(paymentMethod: 'wechat' | 'alipay', orderNo: string, amount: number): string {
-  if (paymentMethod === 'wechat') {
-    return `https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=mock_${orderNo}&package=Sign%3DWxPaySign&mock=1&amount=${amount}`;
-  } else {
-    return `https://openapi.alipay.com/gateway.do?mock=1&out_trade_no=${orderNo}&total_amount=${amount}`;
-  }
+  const base = `mock://pay.newhttps.local/${paymentMethod}`;
+  return `${base}?order_no=${orderNo}&amount=${amount}&mock=1`;
 }
 
 /**
@@ -44,7 +51,7 @@ router.get('/plans', async (req, res: Response): Promise<any> => {
 /**
  * POST /api/v1/payment/create - 创建支付订单（需认证）
  */
-router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.post('/create', paymentLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { amount, paymentMethod, description, planId } = req.body;
 
@@ -84,7 +91,7 @@ router.post('/create', authMiddleware, async (req: AuthRequest, res: Response): 
 /**
  * GET /api/v1/payment/orders - 获取用户订单列表（需认证）
  */
-router.get('/orders', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.get('/orders', paymentLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const db = Database.getInstance();
     const orders = await db.getPaymentOrdersByUserId(req.user!.id);
@@ -98,7 +105,7 @@ router.get('/orders', authMiddleware, async (req: AuthRequest, res: Response): P
 /**
  * GET /api/v1/payment/orders/:orderId - 获取订单详情（需认证）
  */
-router.get('/orders/:orderId', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.get('/orders/:orderId', paymentLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { orderId } = req.params;
     const db = Database.getInstance();

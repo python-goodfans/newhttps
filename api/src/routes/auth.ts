@@ -1,15 +1,25 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { Database } from '../services/database';
 import { authMiddleware, generateToken, AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
 
+// 认证相关接口限流：每 15 分钟最多 20 次请求
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: '请求过于频繁，请稍后再试' }
+});
+
 /**
  * POST /api/v1/auth/register - 用户注册
  */
-router.post('/register', async (req, res: Response): Promise<any> => {
+router.post('/register', authLimiter, async (req, res: Response): Promise<any> => {
   try {
     const { username, email, password } = req.body;
 
@@ -63,7 +73,7 @@ router.post('/register', async (req, res: Response): Promise<any> => {
 /**
  * POST /api/v1/auth/login - 用户登录
  */
-router.post('/login', async (req, res: Response): Promise<any> => {
+router.post('/login', authLimiter, async (req, res: Response): Promise<any> => {
   try {
     const { username, password } = req.body;
 
@@ -107,7 +117,7 @@ router.post('/login', async (req, res: Response): Promise<any> => {
 /**
  * GET /api/v1/auth/profile - 获取当前用户信息（需认证）
  */
-router.get('/profile', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.get('/profile', authLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const db = Database.getInstance();
     const user = await db.getUserById(req.user!.id);
@@ -136,7 +146,7 @@ router.get('/profile', authMiddleware, async (req: AuthRequest, res: Response): 
 /**
  * PUT /api/v1/auth/profile - 更新用户信息（需认证）
  */
-router.put('/profile', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.put('/profile', authLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { username, email, avatar } = req.body;
     const db = Database.getInstance();
@@ -177,7 +187,7 @@ router.put('/profile', authMiddleware, async (req: AuthRequest, res: Response): 
 /**
  * PUT /api/v1/auth/password - 修改密码（需认证）
  */
-router.put('/password', authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
+router.put('/password', authLimiter, authMiddleware, async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { oldPassword, newPassword } = req.body;
 

@@ -1369,10 +1369,15 @@ export class Database {
           logger.error('Failed to get payment plans:', err);
           reject(err);
         } else {
-          const plans = (rows || []).map(p => ({
-            ...p,
-            features: JSON.parse(p.features || '[]')
-          }));
+          const plans = (rows || []).map(p => {
+            let features: any = [];
+            try {
+              features = JSON.parse(p.features || '[]');
+            } catch {
+              features = [];
+            }
+            return { ...p, features };
+          });
           resolve(plans);
         }
       });
