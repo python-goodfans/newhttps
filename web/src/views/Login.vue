@@ -42,6 +42,10 @@
             </template>
           </a-input-password>
         </a-form-item>
+
+        <a-form-item>
+          <a-checkbox v-model:checked="rememberMe">记住我</a-checkbox>
+        </a-form-item>
         
         <a-form-item>
           <a-button
@@ -54,6 +58,11 @@
             登录
           </a-button>
         </a-form-item>
+
+        <div class="form-footer">
+          <span>没有账号？</span>
+          <router-link to="/register">去注册</router-link>
+        </div>
       </a-form>
     </div>
   </div>
@@ -70,6 +79,7 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const loading = ref(false)
+const rememberMe = ref(false)
 const loginForm = ref({
   username: '',
   password: ''
@@ -78,24 +88,12 @@ const loginForm = ref({
 const handleLogin = async () => {
   loading.value = true
   try {
-    // 模拟登录
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    // 模拟用户数据
-    const userData = {
-      id: '1',
-      username: loginForm.value.username,
-      email: 'admin@example.com',
-      role: 'admin'
-    }
-    
-    const token = 'mock-jwt-token'
-    
-    userStore.login(userData, token)
+    await userStore.login({ ...loginForm.value, rememberMe: rememberMe.value })
     message.success('登录成功')
     router.push('/dashboard')
-  } catch (error) {
-    message.error('登录失败')
+  } catch (error: any) {
+    const msg = error?.message || '登录失败，请检查用户名和密码'
+    message.error(msg)
   } finally {
     loading.value = false
   }
@@ -133,5 +131,16 @@ const handleLogin = async () => {
 .login-header p {
   color: #666;
   margin: 0;
+}
+
+.form-footer {
+  text-align: center;
+  margin-top: 8px;
+  color: #666;
+}
+
+.form-footer a {
+  color: #1890ff;
+  margin-left: 4px;
 }
 </style>

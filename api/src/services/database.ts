@@ -1,7 +1,45 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs-extra';
+import bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  password_hash: string;
+  role: string;
+  avatar?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentOrder {
+  id: string;
+  user_id: string;
+  order_no: string;
+  amount: number;
+  payment_method: 'wechat' | 'alipay';
+  status: 'pending' | 'paid' | 'cancelled' | 'refunded';
+  description: string;
+  plan_id?: string;
+  pay_url?: string;
+  paid_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentPlan {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  duration_days: number;
+  features: string;
+  created_at: string;
+}
 
 export interface Agent {
   id: string;
@@ -198,6 +236,49 @@ export class Database {
       )
     `;
 
+    const createUsersTable = `
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        avatar TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    const createPaymentOrdersTable = `
+      CREATE TABLE IF NOT EXISTS payment_orders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        order_no TEXT NOT NULL UNIQUE,
+        amount REAL NOT NULL,
+        payment_method TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        description TEXT,
+        plan_id TEXT,
+        pay_url TEXT,
+        paid_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+      )
+    `;
+
+    const createPaymentPlansTable = `
+      CREATE TABLE IF NOT EXISTS payment_plans (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        price REAL NOT NULL,
+        duration_days INTEGER NOT NULL,
+        features TEXT DEFAULT '[]',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error('Database not initialized'));
@@ -240,6 +321,30 @@ export class Database {
         this.db!.run(createDeploymentTasksTable, (err) => {
           if (err) {
             logger.error('Failed to create deployment tasks table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        this.db!.run(createUsersTable, (err) => {
+          if (err) {
+            logger.error('Failed to create users table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        this.db!.run(createPaymentOrdersTable, (err) => {
+          if (err) {
+            logger.error('Failed to create payment_orders table:', err);
+            reject(err);
+            return;
+          }
+        });
+
+        this.db!.run(createPaymentPlansTable, (err) => {
+          if (err) {
+            logger.error('Failed to create payment_plans table:', err);
             reject(err);
             return;
           }
@@ -936,6 +1041,429 @@ export class Database {
         }
       });
     });
+  }
+
+  // ===== User Methods =====
+
+  /**
+   * 创建用户
+   */
+  async createUser(user: { username: string; email: string; password: string; role?: string }): Promise<User> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const id = uuidv4();
+      const password_hash = bcrypt.hashSync(user.password, 10);
+      const role = user.role || 'user';
+
+      const sql = `
+        INSERT INTO users (id, username, email, password_hash, role)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+
+      this.db.run(sql, [id, user.username, user.email, password_hash, role], (err) => {
+        if (err) {
+          logger.error('Failed to create user:', err);
+          reject(err);
+        } else {
+          this.getUserById(id).then((u) => resolve(u!)).catch(reject);
+        }
+      });
+    });
+  }
+
+  /**
+   * 根据用户名查找用户
+   */
+  async getUserByUsername(username: string): Promise<User | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.get('SELECT * FROM users WHERE username = ?', [username], (err, row: User) => {
+        if (err) {
+          logger.error('Failed to get user by username:', err);
+          reject(err);
+        } else {
+          resolve(row || null);
+        }
+      });
+    });
+  }
+
+  /**
+   * 根据邮箱查找用户
+   */
+  async getUserByEmail(email: string): Promise<User | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.get('SELECT * FROM users WHERE email = ?', [email], (err, row: User) => {
+        if (err) {
+          logger.error('Failed to get user by email:', err);
+          reject(err);
+        } else {
+          resolve(row || null);
+        }
+      });
+    });
+  }
+
+  /**
+   * 根据ID查找用户
+   */
+  async getUserById(id: string): Promise<User | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.get('SELECT * FROM users WHERE id = ?', [id], (err, row: User) => {
+        if (err) {
+          logger.error('Failed to get user by id:', err);
+          reject(err);
+        } else {
+          resolve(row || null);
+        }
+      });
+    });
+  }
+
+  /**
+   * 更新用户信息
+   */
+  async updateUser(id: string, updates: { username?: string; email?: string; avatar?: string }): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const fields: string[] = [];
+      const values: any[] = [];
+
+      if (updates.username !== undefined) {
+        fields.push('username = ?');
+        values.push(updates.username);
+      }
+      if (updates.email !== undefined) {
+        fields.push('email = ?');
+        values.push(updates.email);
+      }
+      if (updates.avatar !== undefined) {
+        fields.push('avatar = ?');
+        values.push(updates.avatar);
+      }
+
+      if (fields.length === 0) {
+        resolve();
+        return;
+      }
+
+      fields.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(id);
+
+      const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+
+      this.db.run(sql, values, (err) => {
+        if (err) {
+          logger.error('Failed to update user:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * 修改用户密码
+   */
+  async updateUserPassword(id: string, newPassword: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const password_hash = bcrypt.hashSync(newPassword, 10);
+
+      this.db.run(
+        'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [password_hash, id],
+        (err) => {
+          if (err) {
+            logger.error('Failed to update user password:', err);
+            reject(err);
+          } else {
+            resolve();
+          }
+        }
+      );
+    });
+  }
+
+  // ===== Payment Order Methods =====
+
+  /**
+   * 创建支付订单
+   */
+  async createPaymentOrder(order: {
+    user_id: string;
+    order_no: string;
+    amount: number;
+    payment_method: 'wechat' | 'alipay';
+    description: string;
+    plan_id?: string;
+    pay_url?: string;
+  }): Promise<PaymentOrder> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const id = uuidv4();
+
+      const sql = `
+        INSERT INTO payment_orders (id, user_id, order_no, amount, payment_method, description, plan_id, pay_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      this.db.run(sql, [
+        id,
+        order.user_id,
+        order.order_no,
+        order.amount,
+        order.payment_method,
+        order.description,
+        order.plan_id || null,
+        order.pay_url || null
+      ], (err) => {
+        if (err) {
+          logger.error('Failed to create payment order:', err);
+          reject(err);
+        } else {
+          this.getPaymentOrderById(id).then((o) => resolve(o!)).catch(reject);
+        }
+      });
+    });
+  }
+
+  /**
+   * 获取用户订单列表
+   */
+  async getPaymentOrdersByUserId(userId: string): Promise<PaymentOrder[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.all(
+        'SELECT * FROM payment_orders WHERE user_id = ? ORDER BY created_at DESC',
+        [userId],
+        (err, rows: PaymentOrder[]) => {
+          if (err) {
+            logger.error('Failed to get payment orders:', err);
+            reject(err);
+          } else {
+            resolve(rows || []);
+          }
+        }
+      );
+    });
+  }
+
+  /**
+   * 获取订单详情
+   */
+  async getPaymentOrderById(id: string): Promise<PaymentOrder | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.get('SELECT * FROM payment_orders WHERE id = ?', [id], (err, row: PaymentOrder) => {
+        if (err) {
+          logger.error('Failed to get payment order:', err);
+          reject(err);
+        } else {
+          resolve(row || null);
+        }
+      });
+    });
+  }
+
+  /**
+   * 通过订单号获取订单
+   */
+  async getPaymentOrderByOrderNo(orderNo: string): Promise<PaymentOrder | null> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.get('SELECT * FROM payment_orders WHERE order_no = ?', [orderNo], (err, row: PaymentOrder) => {
+        if (err) {
+          logger.error('Failed to get payment order by order_no:', err);
+          reject(err);
+        } else {
+          resolve(row || null);
+        }
+      });
+    });
+  }
+
+  /**
+   * 更新订单状态
+   */
+  async updatePaymentOrderStatus(id: string, status: PaymentOrder['status'], paidAt?: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const sql = `
+        UPDATE payment_orders SET status = ?, paid_at = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `;
+
+      this.db.run(sql, [status, paidAt || null, id], (err) => {
+        if (err) {
+          logger.error('Failed to update payment order status:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  // ===== Payment Plan Methods =====
+
+  /**
+   * 获取所有套餐计划
+   */
+  async getAllPaymentPlans(): Promise<PaymentPlan[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      this.db.all('SELECT * FROM payment_plans ORDER BY price ASC', [], (err, rows: PaymentPlan[]) => {
+        if (err) {
+          logger.error('Failed to get payment plans:', err);
+          reject(err);
+        } else {
+          const plans = (rows || []).map(p => {
+            let features: any = [];
+            try {
+              features = JSON.parse(p.features || '[]');
+            } catch {
+              features = [];
+            }
+            return { ...p, features };
+          });
+          resolve(plans);
+        }
+      });
+    });
+  }
+
+  /**
+   * 创建套餐计划
+   */
+  async createPaymentPlan(plan: Omit<PaymentPlan, 'id' | 'created_at'>): Promise<PaymentPlan> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+
+      const id = uuidv4();
+      const features = Array.isArray(plan.features) ? JSON.stringify(plan.features) : plan.features;
+
+      const sql = `
+        INSERT INTO payment_plans (id, name, description, price, duration_days, features)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+
+      this.db.run(sql, [id, plan.name, plan.description, plan.price, plan.duration_days, features], (err) => {
+        if (err) {
+          logger.error('Failed to create payment plan:', err);
+          reject(err);
+        } else {
+          this.db!.get('SELECT * FROM payment_plans WHERE id = ?', [id], (e, row: PaymentPlan) => {
+            if (e) reject(e);
+            else resolve({ ...row, features: JSON.parse(row.features || '[]') });
+          });
+        }
+      });
+    });
+  }
+
+  /**
+   * 初始化默认套餐和管理员账号
+   */
+  async initDefaultPlans(): Promise<void> {
+    // 初始化默认管理员账号
+    const existing = await this.getUserByUsername('admin');
+    if (!existing) {
+      await this.createUser({
+        username: 'admin',
+        email: 'admin@newhttps.com',
+        password: 'admin123',
+        role: 'admin'
+      });
+      logger.info('Default admin user created (admin/admin123)');
+    }
+
+    // 初始化默认套餐
+    const plans = await this.getAllPaymentPlans();
+    if (plans.length === 0) {
+      const defaultPlans = [
+        {
+          name: '免费版',
+          description: '适合个人用户和小型项目',
+          price: 0,
+          duration_days: 365,
+          features: JSON.stringify(['管理 5 个证书', '手动续期', '基础监控'])
+        },
+        {
+          name: '专业版',
+          description: '适合中小企业和开发团队',
+          price: 99,
+          duration_days: 365,
+          features: JSON.stringify(['管理 50 个证书', '自动续期', '高级监控', '邮件通知', '优先支持'])
+        },
+        {
+          name: '企业版',
+          description: '适合大型企业和高并发场景',
+          price: 299,
+          duration_days: 365,
+          features: JSON.stringify(['无限证书', '自动续期', '高级监控', '多渠道通知', '专属支持', 'API 访问'])
+        }
+      ];
+
+      for (const plan of defaultPlans) {
+        await this.createPaymentPlan(plan);
+      }
+      logger.info('Default payment plans created');
+    }
   }
 
   /**
